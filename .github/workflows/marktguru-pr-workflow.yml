@@ -236,7 +236,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assign Approver to PR
-        if: env.assign == 'true'
+        #if: env.assign == 'true'
         run: |
           echo "Assigning $APPROVER to PR #$PR_NUMBER"
 
