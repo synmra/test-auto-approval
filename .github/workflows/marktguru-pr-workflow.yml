@@ -206,7 +206,7 @@ jobs:
 
   assign-approver:
     runs-on: ubuntu-latest
-    #if: github.event.review.state == 'APPROVED'  # Only trigger on approval
+    if: github.event.review.state == 'approved'  # Only trigger on approval
     steps:
       - name: Check Current Assignees
         id: check-assignees
@@ -216,8 +216,8 @@ jobs:
           APPROVER="${{ github.event.review.user.login }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           
-          echo "APPROVER=$APPROVER" >> $GITHUB_ENV
-          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          echo "approver=$APPROVER" >> $GITHUB_ENV
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_ENV
 
           echo "Checking if $APPROVER is already assigned to PR #$PR_NUMBER"
 
@@ -238,8 +238,8 @@ jobs:
       - name: Assign Approver to PR
         #if: env.assign == 'true'
         run: |
-          echo "Assigning $APPROVER to PR #$PR_NUMBER"
+          echo "Assigning ${{ env.approver }} to PR ${{ env.int_pr_number }}"
 
-          gh pr edit "$PR_NUMBER" --repo ${{ github.repository }} --add-assignee "$APPROVER"
+          gh pr edit "${{ env.int_pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
