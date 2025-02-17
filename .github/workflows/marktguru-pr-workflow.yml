@@ -238,8 +238,8 @@ jobs:
       - name: Assign Approver to PR
         #if: env.assign == 'true'
         run: |
-          echo "Assigning ${{ env.approver }} to PR ${{ env.int_pr_number }}"
+          echo "Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
 
-          gh pr edit "${{ env.int_pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
+          gh pr edit "${{ env.pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
