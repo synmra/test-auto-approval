@@ -216,8 +216,8 @@ jobs:
           APPROVER="${{ github.event.review.user.login }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
           
-          echo "approver=$APPROVER" >> $GITHUB_ENV
-          echo "pr_number=$PR_NUMBER" >> $GITHUB_ENV
+          echo "APPROVER=$APPROVER" >> $GITHUB_ENV
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
           echo "Checking if $APPROVER is already assigned to PR #$PR_NUMBER"
 
