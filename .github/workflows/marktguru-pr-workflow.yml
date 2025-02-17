@@ -46,7 +46,7 @@ jobs:
 
   delete-temp-branch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.mergeable_state == 'clean' && github.event.pull_request.head.ref == 'temp/*'
+    #if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.mergeable_state == 'clean' && github.event.pull_request.head.ref == 'temp/*'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +54,11 @@ jobs:
       
       - name: Delete temporary branch if PR is approved and merged
         run: |
+          echo "Action: ${{ github.event.action }}"
+          echo "IsMerged: ${{ github.event.pull_request.merged }}"
+          echo "State: ${{ github.event.pull_request.mergeable_state }}"
+          echo "Ref: ${{ github.event.pull_request.head.ref }}"
+
           gh repo sync --force
           gh pr delete ${{ github.event.pull_request.number }} --delete-branch --confirm
         env:
@@ -235,8 +240,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Assign Approver to PR
-        #if: env.assign == 'true'
+      - name: Set Approver as an Assignee to PR
+        if: env.assign == 'true'
         run: |
           echo "Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
 
