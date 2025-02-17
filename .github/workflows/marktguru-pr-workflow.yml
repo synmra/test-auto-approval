@@ -46,7 +46,7 @@ jobs:
 
   delete-temp-branch:
     runs-on: ubuntu-latest
-    #if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.mergeable_state == 'clean' && github.event.pull_request.head.ref == 'temp/*'
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,13 +54,9 @@ jobs:
       
       - name: Delete temporary branch if PR is approved and merged
         run: |
-          echo "Action: ${{ github.event.action }}"
-          echo "IsMerged: ${{ github.event.pull_request.merged }}"
-          echo "State: ${{ github.event.pull_request.mergeable_state }}"
-          echo "Ref: ${{ github.event.pull_request.head.ref }}"
-
           gh repo sync --force
-          gh pr delete ${{ github.event.pull_request.number }} --delete-branch --confirm
+          gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
+          
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -196,7 +192,7 @@ jobs:
 
   delete-feature-branch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.mergeable_state == 'clean' && contains(fromJSON('["main", "master"]'), github.event.pull_request.base.ref)
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && contains(fromJSON('["main", "master"]'), github.event.pull_request.base.ref)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -204,8 +200,9 @@ jobs:
       
       - name: Delete feature branch if PR is approved and merged to main
         run: |
-              gh repo sync --force
-              gh pr delete ${{ github.event.pull_request.number }} --delete-branch --confirm
+          gh repo sync --force
+          gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
+          
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
