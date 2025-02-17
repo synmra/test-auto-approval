@@ -206,7 +206,7 @@ jobs:
 
   assign-approver:
     runs-on: ubuntu-latest
-    #if: github.event.review.state == 'APPROVED'  # Only trigger on approval
+    if: github.event.review.state == 'approved'  # Only trigger on approval
     steps:
       - name: Check Current Assignees
         id: check-assignees
@@ -236,10 +236,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Assign Approver to PR
-        if: env.assign == 'true'
+        #if: env.assign == 'true'
         run: |
-          echo "Assigning $APPROVER to PR #$PR_NUMBER"
+          echo "Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
 
-          gh pr edit "$PR_NUMBER" --repo ${{ github.repository }} --add-assignee "$APPROVER"
+          gh pr edit "${{ env.pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
