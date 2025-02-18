@@ -45,7 +45,7 @@ jobs:
           fi
           
           gh pr edit ${{ github.event.pull_request.number }} --add-label "$PR_LABEL"
-          echo "pr_label=$PR_LABEL" >> $GITHUB_ENV
+          echo "pr_label=$PR_LABEL" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
