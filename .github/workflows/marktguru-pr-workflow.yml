@@ -57,6 +57,9 @@ jobs:
           gh repo sync --force
           gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
           
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
+              
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
