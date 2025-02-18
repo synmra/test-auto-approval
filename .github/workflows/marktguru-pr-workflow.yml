@@ -46,7 +46,7 @@ jobs:
 
   delete-temp-branch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
     steps:
       - uses: actions/checkout@v4
         with:
