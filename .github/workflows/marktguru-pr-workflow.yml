@@ -16,12 +16,15 @@ jobs:
   add-label:
     runs-on: ubuntu-latest
     if: contains(fromJSON('["opened", "reopened", "synchronize"]'), github.event.action)
+    outputs:
+      pr_label: ${{ steps.set-label.outputs.pr_label }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: '0'
       
       - name: Add label based on branch name
+        id: set-label
         run: |
           # Extract the branch name (e.g., feature/mr/1234 -> 1234)
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
@@ -62,7 +65,7 @@ jobs:
           TEST_PR_NUMBER="${{ github.event.pull_request.number }}"
           CURRENT_USER="${{ github.actor }}"
 
-          echo "PR label: ${{ env.pr_label }}"
+          echo "PR label: ${{ needs.add-label.outputs.pr_label }}"
           echo "Test PR title: $TEST_PR_TITLE"
           echo "Test PR author: $TEST_PR_AUTHOR"
           echo "Test PR number: $TEST_PR_NUMBER"
@@ -75,7 +78,7 @@ jobs:
       - name: Check for matching closed PR in integration
         id: check-pr
         run: |
-          PR_LABEL="${{ env.pr_label }}"
+          PR_LABEL="${{ needs.add-label.outputs.pr_label }}"
           echo "Checking for closed PR with the label: '$PR_LABEL' on integration"
 
           # Fetch closed PR matching the label
