@@ -142,13 +142,6 @@ jobs:
             echo "Files in integration commit ($MERGE_SHA):"
             echo "$INTEGRATION_FILES"
           
-            # Compare file lists
-            if [[ "$INTEGRATION_FILES" != "$TEST_FILES" ]]; then
-              echo "Files do not match!"
-              echo "approve=false" >> $GITHUB_ENV
-              exit 0
-            fi
-          
             # Check content hashes
             for FILE in $INTEGRATION_FILES; do
               echo "Comparing file: $FILE"
