@@ -9,6 +9,8 @@ on:
 
 permissions:
   pull-requests: write  # Allow workflow to approve PRs and add labels
+  contents: write
+
 
 jobs:
   add-label:
@@ -46,7 +48,7 @@ jobs:
 
   delete-temp-branch:
     runs-on: ubuntu-latest
-    #if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'temp/')
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,9 +56,9 @@ jobs:
       
       - name: Delete temporary branch if PR is approved and merged
         run: |
-          gh repo sync --force
-          gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
-          
+          echo "Action: ${{ github.event.action }}"
+          echo "Merged: ${{ github.event.pull_request.merged }}"
+          echo "Ref: ${{ github.event.pull_request.head.ref }}"
           git fetch --prune
           git push origin --delete ${{ github.event.pull_request.head.ref }}
               
@@ -203,8 +205,8 @@ jobs:
       
       - name: Delete feature branch if PR is approved and merged to main
         run: |
-          gh repo sync --force
-          gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
           
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
