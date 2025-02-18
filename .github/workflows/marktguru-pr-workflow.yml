@@ -89,28 +89,31 @@ jobs:
 
           echo "Number of closed PRs with label '$PR_LABEL': $PR_COUNT"
 
-          # If there is exactly one PR, proceed
           if [[ "$PR_COUNT" -eq 0 ]]; then
             echo "No closed PR found in integration with the label '$PR_LABEL'."
             echo "approve=false" >> $GITHUB_ENV
             exit 0
-          elif [[ "$PR_COUNT" -eq 1 ]]; then
-            INT_PR_NUMBER=$(echo "$INTEGRATION_PRS" | jq -r '.[0].number')
-            echo "Matching closed PR found: #$INT_PR_NUMBER"
-            echo "int_pr_number=$INT_PR_NUMBER" >> $GITHUB_ENV
+          fi
+          
+          # Extract all PR numbers and their merge commit SHAs
+          MERGE_COMMITS=()
+          for (( i=0; i<PR_COUNT; i++ )); do
+            INT_PR_NUMBER=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].number")
+            MERGE_SHA=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].mergeCommitSha")
+            echo "PR #$INT_PR_NUMBER - Merge Commit: $MERGE_SHA"
             
-            # Fetch PR reviews using `gh api`
             INT_PR_REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$INT_PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED")] | length')
 
-            if [[ "$INT_PR_REVIEWS" -gt 0 ]]; then
-              echo "Matching closed PR found in integration and it was approved."
-              echo "approve=true" >> $GITHUB_ENV
-            else
-              echo "Matching closed PR found in integration, but it was not approved."
+            if [[ "$INT_PR_REVIEWS" -eq 0 ]]; then
+              echo "PR #$INT_PR_NUMBER was merged but was NOT approved!"
               echo "approve=false" >> $GITHUB_ENV
               exit 0
             fi
-          fi
+            echo "PR #$INT_PR_NUMBER was approved."
+            MERGE_COMMITS+=("$MERGE_SHA")
+          done
+          
+          echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
           
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -120,54 +123,66 @@ jobs:
         run: |
           # Get PR numbers
           TEST_PR_NUMBER=${{ env.test_pr_number }} # From previous step
-          INTEGRATION_PR_NUMBER=${{ env.int_pr_number }} # From previous step
 
-          echo "Fetching changed files for PR #$TEST_PR_NUMBER (test) and PR #$INTEGRATION_PR_NUMBER (integration)..."
-
-          # Get file lists
-          INTEGRATION_FILES=$(gh pr view $INTEGRATION_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
+          echo "Fetching changed files for PR #$TEST_PR_NUMBER (test) ..."
           TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
-
-          echo "Files in integration PR:"
-          echo "$INTEGRATION_FILES"
 
           echo "Files in test PR:"
           echo "$TEST_FILES"
-
-          # Compare file lists
-          if [[ "$INTEGRATION_FILES" != "$TEST_FILES" ]]; then
-            echo "Files do not match!"
-            echo "approve=false" >> $GITHUB_ENV
-            exit 0
-          fi
-
+    
+    
           MATCH=true
-          for FILE in $INTEGRATION_FILES; do
-            # Download raw file contents for both PRs
-            gh pr checkout $INTEGRATION_PR_NUMBER
-            INTEGRATION_CHECKSUM=$(sha256sum "$FILE" | awk '{print $1}')
-            gh pr checkout $TEST_PR_NUMBER
-            TEST_CHECKSUM=$(sha256sum "$FILE" | awk '{print $1}')
-
-            echo "Checking file: $FILE"
-            echo "Integration checksum: $INTEGRATION_CHECKSUM"
-            echo "Test checksum: $TEST_CHECKSUM"
-
-            if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
-              MATCH=false
-              echo "Checksum mismatch in file: $FILE"
-              break
+          for MERGE_SHA in ${{ env.merge_commits }}; do
+            echo "Checking files from merge commit: $MERGE_SHA"
+          
+            # Get changed files in each merged PR in integration
+            INTEGRATION_FILES=$(gh api repos/${{ github.repository }}/commits/$MERGE_SHA --jq '.files[].filename' | sort)
+          
+            echo "Files in integration commit ($MERGE_SHA):"
+            echo "$INTEGRATION_FILES"
+          
+            # Compare file lists
+            if [[ "$INTEGRATION_FILES" != "$TEST_FILES" ]]; then
+              echo "Files do not match!"
+              echo "approve=false" >> $GITHUB_ENV
+              exit 0
+            fi
+          
+            # Check content hashes
+            for FILE in $INTEGRATION_FILES; do
+              echo "Comparing file: $FILE"
+          
+              # Get latest file content from integration commit
+              INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
+                --ref=$MERGE_SHA --jq '.content' | base64 --decode)
+          
+              # Get latest file content from test PR branch
+              TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
+                --ref=pull/$TEST_PR_NUMBER/head --jq '.content' | base64 --decode)
+          
+              # Compute SHA-256 hashes
+              INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
+              TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
+          
+              echo "Integration checksum: $INTEGRATION_CHECKSUM"
+              echo "Test checksum: $TEST_CHECKSUM"
+          
+              if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
+                MATCH=false
+                echo "Checksum mismatch in file: $FILE"
+                break
+              fi
+            done
+          
+            if [[ "$MATCH" == "false" ]]; then
+              echo "File contents do not match (checksum mismatch)!"
+              echo "approve=false" >> $GITHUB_ENV
+              exit 0
             fi
           done
-
-          if [[ "$MATCH" == "false" ]]; then
-            echo "File contents do not match (checksum mismatch)!"
-            echo "approve=false" >> $GITHUB_ENV
-          else
-            echo "All files match in content and checksum!"
-            echo "approve=true" >> $GITHUB_ENV
-          fi
           
+          echo "All files match in content and checksum!"
+          echo "approve=true" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
