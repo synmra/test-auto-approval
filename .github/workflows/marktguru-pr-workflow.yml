@@ -46,7 +46,7 @@ jobs:
 
   delete-temp-branch:
     runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'temp/*'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +54,7 @@ jobs:
       
       - name: Delete temporary branch if PR is approved and merged
         run: |
+          echo "PR label: ${{ github.event.action }}"
           gh repo sync --force
           gh api --method DELETE "/repos/${{ github.repository }}/git/refs/heads/${{ github.event.pull_request.head.ref }}"
           
