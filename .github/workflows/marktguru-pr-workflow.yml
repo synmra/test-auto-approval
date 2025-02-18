@@ -99,7 +99,8 @@ jobs:
           MERGE_COMMITS=()
           for (( i=0; i<PR_COUNT; i++ )); do
             INT_PR_NUMBER=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].number")
-            MERGE_SHA=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].mergeCommitSha")
+            MERGE_SHA=$(gh pr view $INT_PR_NUMBER --repo ${{ github.repository }} --json mergeCommit --jq '.mergeCommit.oid')
+
             echo "PR #$INT_PR_NUMBER - Merge Commit: $MERGE_SHA"
             
             INT_PR_REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$INT_PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED")] | length')
