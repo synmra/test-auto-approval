@@ -9,6 +9,8 @@ on:
 
 permissions:
   pull-requests: write  # Allow workflow to approve PRs and add labels
+  contents: write
+
 
 jobs:
   add-label:
