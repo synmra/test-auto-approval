@@ -46,25 +46,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  delete-temp-branch:
-    runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'temp/')
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: '0'
-      
-      - name: Delete temporary branch if PR is approved and merged
-        run: |
-          echo "Action: ${{ github.event.action }}"
-          echo "Merged: ${{ github.event.pull_request.merged }}"
-          echo "Ref: ${{ github.event.pull_request.head.ref }}"
-          git fetch --prune
-          git push origin --delete ${{ github.event.pull_request.head.ref }}
-              
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   auto-approve:
     runs-on: ubuntu-latest
     needs: add-label
@@ -194,23 +175,7 @@ jobs:
           gh pr review ${{ github.event.pull_request.number }} --approve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  delete-feature-branch:
-    runs-on: ubuntu-latest
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true && contains(fromJSON('["main", "master"]'), github.event.pull_request.base.ref)
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: '0'
-      
-      - name: Delete feature branch if PR is approved and merged to main
-        run: |
-          git fetch --prune
-          git push origin --delete ${{ github.event.pull_request.head.ref }}
-          
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+  
   assign-approver:
     runs-on: ubuntu-latest
     if: github.event.review.state == 'approved'  # Only trigger on approval
@@ -250,3 +215,39 @@ jobs:
           gh pr edit "${{ env.pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  delete-feature-branch:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && contains(fromJSON('["main", "master"]'), github.event.pull_request.base.ref)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      
+      - name: Delete feature branch if PR is approved and merged to main
+        run: |
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
+          
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  delete-temp-branch:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'temp/')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      
+      - name: Delete temporary branch if PR is approved and merged
+        run: |
+          echo "Action: ${{ github.event.action }}"
+          echo "Merged: ${{ github.event.pull_request.merged }}"
+          echo "Ref: ${{ github.event.pull_request.head.ref }}"
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
+              
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
