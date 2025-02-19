@@ -163,7 +163,7 @@ jobs:
 
             if [[ "$FILE_STATUS" == "removed" ]]; then
                 echo "File $FILE_NAME was removed on Integration. Just check the same on Test"
-                TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head)
+                TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head 2>/dev/null)
                 if [[ $(echo "$TEST_CONTENT" | jq -r '.status') == "404" ]]; then
                     echo "File $FILE_NAME does not exist also in test PR. Skipping content check ..."
                     continue
