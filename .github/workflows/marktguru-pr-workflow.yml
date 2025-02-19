@@ -113,7 +113,7 @@ jobs:
             echo "PR #$INT_PR_NUMBER was approved."
             MERGE_COMMITS+=("$MERGE_SHA")
           done
-          echo "$MERGE_COMMITS"
+          echo "${MERGE_COMMITS[*]}"
           echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
           
         env:
@@ -143,7 +143,9 @@ jobs:
               LATEST_FILE_COMMITS["$FILE"]=$MERGE_SHA
             done
           done
-          echo "$LATEST_FILE_COMMITS"
+          
+          echo "${LATEST_FILE_COMMITS[*]}"
+          
           if [[ "${#LATEST_FILE_COMMITS[@]}" -ne "$(echo "$TEST_FILES" | wc -l)" ]]; then
             echo "Mismatch in file count!"
             echo "Integration files (${#LATEST_FILE_COMMITS[@]}): ${!LATEST_FILE_COMMITS[@]}"
