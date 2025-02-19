@@ -136,7 +136,7 @@ jobs:
           for MERGE_SHA in ${{ env.merge_commits }}; do
             echo "Checking files from merge commit: $MERGE_SHA"
             
-            CHANGED_FILES=$(gh api repos/${{ github.repository }}/commits/$MERGE_SHA --jq '.files[].filename')
+            CHANGED_FILES=$(gh api repos/${{ github.repository }}/commits/$MERGE_SHA --jq '.files[] | {filename, status}')
 
             for FILE in $CHANGED_FILES; do
               LATEST_FILE_COMMITS["$FILE"]=$MERGE_SHA
@@ -156,26 +156,45 @@ jobs:
 
           for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
             LATEST_COMMIT=${LATEST_FILE_COMMITS["$FILE"]}
+            FILE_NAME=$(echo "$FILE" | jq -r '.filename') 
+            FILE_STATUS=$(echo "$FILE" | jq -r '.status')
+            
+            echo "Fetching latest version of $FILE_NAME from commit $LATEST_COMMIT..."
 
-            echo "Fetching latest version of $FILE from commit $LATEST_COMMIT..."
+            if [[ "$FILE_STATUS" == "removed" ]]; then
+                echo "File $FILE_NAME was removed on Integration. Just check the same on Test"
+                TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head 2>/dev/null)
+                echo "TEST_CONTENT: $TEST_CONTENT";
+                TEST_CONTENT_STATUS = $(echo "$TEST_CONTENT" | jq -r '.status')
+                echo "TEST_CONTENT: $TEST_CONTENT";
+
+                if [[ "$TEST_CONTENT_STATUS" -eq "404" ]]; then
+                    echo "File $FILE_NAME does not exist also in test PR. Skipping content check ..."
+                    continue
+                fi
+                echo "File $FILE_NAME removed from Integration but exists on TEST PR! ..."
+                echo "approve=false" >> $GITHUB_ENV
+                exit 0
+            fi
+
 
             # Get latest file content from integration commit
-            INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=$LATEST_COMMIT --jq '.content')
+            INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=$LATEST_COMMIT --jq '.content')
 
             # Get file content from test PR branch
-            TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=pull/$TEST_PR_NUMBER/head --jq '.content')
+            TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head --jq '.content')
 
             # Compute SHA-256 hashes
             INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
             TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
 
-            echo "Comparing file: $FILE"
+            echo "Comparing file: $FILE_NAME"
             echo "Integration checksum: $INTEGRATION_CHECKSUM"
             echo "Test checksum: $TEST_CHECKSUM"
 
             if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
               MATCH=false
-              echo "Checksum mismatch in file: $FILE"
+              echo "Checksum mismatch in file: $FILE_NAME"
               break
             fi
           done
