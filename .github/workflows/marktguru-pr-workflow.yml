@@ -156,8 +156,8 @@ jobs:
 
           for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
             LATEST_COMMIT=${LATEST_FILE_COMMITS["$FILE"]}
-            FILE_NAME=$(echo "$FILE" | awk '{print $1}') 
-            FILE_STATUS=$(echo "$FILE" | awk '{print $2}')
+            FILE_NAME=$(echo "$FILE" | jq -r '.filename') 
+            FILE_STATUS=$(echo "$FILE" | jq -r '.status')
             
             echo "Fetching latest version of $FILE_NAME from commit $LATEST_COMMIT..."
 
