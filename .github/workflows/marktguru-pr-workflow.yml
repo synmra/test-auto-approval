@@ -113,7 +113,6 @@ jobs:
             echo "PR #$INT_PR_NUMBER was approved."
             MERGE_COMMITS+=("$MERGE_SHA")
           done
-          echo "${MERGE_COMMITS[*]}"
           echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
           
         env:
@@ -161,12 +160,10 @@ jobs:
             echo "Fetching latest version of $FILE from commit $LATEST_COMMIT..."
 
             # Get latest file content from integration commit
-            INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
-              --ref=$LATEST_COMMIT --jq '.content' | base64 --decode)
+            INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=$LATEST_COMMIT --jq '.content')
 
             # Get file content from test PR branch
-            TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
-              --ref=pull/$TEST_PR_NUMBER/head --jq '.content' | base64 --decode)
+            TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=pull/$TEST_PR_NUMBER/head --jq '.content')
 
             # Compute SHA-256 hashes
             INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
