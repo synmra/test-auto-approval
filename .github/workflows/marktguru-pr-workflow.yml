@@ -113,7 +113,6 @@ jobs:
             echo "PR #$INT_PR_NUMBER was approved."
             MERGE_COMMITS+=("$MERGE_SHA")
           done
-          echo "$MERGE_COMMITS"
           echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
           
         env:
@@ -126,7 +125,7 @@ jobs:
           TEST_PR_NUMBER=${{ env.test_pr_number }} # From previous step
 
           echo "Fetching changed files for PR #$TEST_PR_NUMBER (test) ..."
-          TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].filename' | sort)
+          TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
 
           echo "Files in test PR:"
           echo "$TEST_FILES"
@@ -143,7 +142,9 @@ jobs:
               LATEST_FILE_COMMITS["$FILE"]=$MERGE_SHA
             done
           done
-          echo "$LATEST_FILE_COMMITS"
+          
+          echo "${LATEST_FILE_COMMITS[*]}"
+          
           if [[ "${#LATEST_FILE_COMMITS[@]}" -ne "$(echo "$TEST_FILES" | wc -l)" ]]; then
             echo "Mismatch in file count!"
             echo "Integration files (${#LATEST_FILE_COMMITS[@]}): ${!LATEST_FILE_COMMITS[@]}"
@@ -153,33 +154,31 @@ jobs:
             exit 0
           fi
 
-          # for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
-            # LATEST_COMMIT=${LATEST_FILE_COMMITS["$FILE"]}
+          for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
+            LATEST_COMMIT=${LATEST_FILE_COMMITS["$FILE"]}
 
-            # echo "Fetching latest version of $FILE from commit $LATEST_COMMIT..."
+            echo "Fetching latest version of $FILE from commit $LATEST_COMMIT..."
 
-            # # Get latest file content from integration commit
-            # INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
-              # --ref=$LATEST_COMMIT --jq '.content' | base64 --decode)
+            # Get latest file content from integration commit
+            INTEGRATION_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=$LATEST_COMMIT --jq '.content')
 
-            # # Get file content from test PR branch
-            # TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE \
-              # --ref=pull/$TEST_PR_NUMBER/head --jq '.content' | base64 --decode)
+            # Get file content from test PR branch
+            TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE?ref=pull/$TEST_PR_NUMBER/head --jq '.content')
 
-            # # Compute SHA-256 hashes
-            # INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
-            # TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
+            # Compute SHA-256 hashes
+            INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
+            TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
 
-            # echo "Comparing file: $FILE"
-            # echo "Integration checksum: $INTEGRATION_CHECKSUM"
-            # echo "Test checksum: $TEST_CHECKSUM"
+            echo "Comparing file: $FILE"
+            echo "Integration checksum: $INTEGRATION_CHECKSUM"
+            echo "Test checksum: $TEST_CHECKSUM"
 
-            # if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
-              # MATCH=false
-              # echo "Checksum mismatch in file: $FILE"
-              # break
-            # fi
-          # done
+            if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
+              MATCH=false
+              echo "Checksum mismatch in file: $FILE"
+              break
+            fi
+          done
           
           
           if [[ "$MATCH" == "false" ]]; then
