@@ -126,7 +126,7 @@ jobs:
           TEST_PR_NUMBER=${{ env.test_pr_number }} # From previous step
 
           echo "Fetching changed files for PR #$TEST_PR_NUMBER (test) ..."
-          TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].filename' | sort)
+          TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
 
           echo "Files in test PR:"
           echo "$TEST_FILES"
