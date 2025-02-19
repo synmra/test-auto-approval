@@ -65,11 +65,11 @@ jobs:
           TEST_PR_NUMBER="${{ github.event.pull_request.number }}"
           CURRENT_USER="${{ github.actor }}"
 
-          echo -e "\036[32m📄 PR label: ${{ needs.add-label.outputs.pr_label }}"
-          echo -e "\036[32m📄 Test PR title: $TEST_PR_TITLE"
-          echo -e "\036[32m📄 Test PR author: $TEST_PR_AUTHOR"
-          echo -e "\036[32m📄 Test PR number: $TEST_PR_NUMBER"
-          echo -e "\036[32m📄 Current user: $CURRENT_USER"
+          echo -e "\033[32m📄 PR label: ${{ needs.add-label.outputs.pr_label }}"
+          echo -e "\033[32m📄 Test PR title: $TEST_PR_TITLE"
+          echo -e "\033[32m📄 Test PR author: $TEST_PR_AUTHOR"
+          echo -e "\033[32m📄 Test PR number: $TEST_PR_NUMBER"
+          echo -e "\033[32m📄 Current user: $CURRENT_USER"
 
           echo "test_pr_number=$TEST_PR_NUMBER" >> $GITHUB_ENV
         env:
@@ -79,6 +79,7 @@ jobs:
         id: check-pr
         run: |
           PR_LABEL="${{ needs.add-label.outputs.pr_label }}"
+          
           echo -e "\033[32mℹ️ Checking for closed PR with the label: '$PR_LABEL' on integration"
 
           # Fetch closed PR matching the label
@@ -100,17 +101,16 @@ jobs:
           for (( i=0; i<PR_COUNT; i++ )); do
             INT_PR_NUMBER=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].number")
             MERGE_SHA=$(gh pr view $INT_PR_NUMBER --repo ${{ github.repository }} --json mergeCommit --jq '.mergeCommit.oid')
-
-            echo -e "\033[32mℹ️ PR #$INT_PR_NUMBER - Merge Commit: $MERGE_SHA"
-            
+           
             INT_PR_REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$INT_PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED")] | length')
 
             if [[ "$INT_PR_REVIEWS" -eq 0 ]]; then
-              echo -e "\033[31m❌ PR #$INT_PR_NUMBER was merged but was NOT approved!"
+              echo -e "\033[31m❌ PR #$INT_PR_NUMBER (Merge Commit: $MERGE_SHA) was merged but was NOT approved!"
               echo "approve=false" >> $GITHUB_ENV
               exit 0
             fi
-            echo -e "\033[32mℹ️ PR #$INT_PR_NUMBER was approved."
+            echo -e "\033[32mℹ️ PR #$INT_PR_NUMBER (Merge Commit: $MERGE_SHA) was approved!"
+
             MERGE_COMMITS+=("$MERGE_SHA")
           done
           echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
@@ -143,8 +143,11 @@ jobs:
             done
           done
           
-          echo "${LATEST_FILE_COMMITS[*]}"
-          
+          echo -e "\033[34m🔎 Latest file versions:\033[0m"
+          for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
+              echo -e "\033[33m📂 File:\033[0m $FILE \033[36m| Last Commit:\033[0m ${LATEST_FILE_COMMITS[$FILE]}"
+          done
+
           if [[ "${#LATEST_FILE_COMMITS[@]}" -ne "$(echo "$TEST_FILES" | wc -l)" ]]; then
             echo -e "\033[31m❌ Mismatch in file count!"
             echo -e "\033[31m❌ Integration files (${#LATEST_FILE_COMMITS[@]}): ${!LATEST_FILE_COMMITS[@]}"
@@ -162,16 +165,17 @@ jobs:
             echo -e "\033[32mℹ️ Fetching latest version of $FILE_NAME from commit $LATEST_COMMIT..."
 
             if [[ "$FILE_STATUS" == "removed" ]]; then
-                echo -e "\033[36mℹ️ File $FILE_NAME was removed on Integration. Just check the same on Test"
+                echo -e "\033[36mℹ️ The file '$FILE_NAME' was removed in the Integration branch. Checking if it is also removed in the Test branch..."
+                echo -e "\033[36mℹ️ Retrieved content from Test branch for '$FILE_NAME'"
+
                 TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head 2>/dev/null || echo '{}')
-                echo -e "\033[36mℹ️ TEST_CONTENT: $TEST_CONTENT";
                 TEST_CONTENT_STATUS=$(echo "$TEST_CONTENT" | jq -r '.status // empty')
 
                 if [[ "$TEST_CONTENT_STATUS" == "404" ]]; then
-                    echo -e "\033[36mℹ️ File $FILE_NAME does not exist also in test PR. Skipping content check ..."
+                    echo -e "\033[32m✅ The file '$FILE_NAME' is also removed in the Test branch. Skipping content validation"
                     continue
                 fi
-                echo -e "\033[31m❌ File $FILE_NAME removed from Integration but exists on TEST PR! ..."
+                echo -e "\033[31m❌ Conflict detected! The file '$FILE_NAME' was removed in Integration, but still exists in the Test branch. Approval cannot proceed."
                 echo "approve=false" >> $GITHUB_ENV
                 exit 0
             fi
@@ -187,9 +191,8 @@ jobs:
             INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
             TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
 
-            echo -e "\033[36mℹ️ Comparing file: $FILE_NAME"
             echo -e "\033[36mℹ️ Integration checksum: $INTEGRATION_CHECKSUM"
-            echo -e "\033[36mℹ️ Test checksum: $TEST_CHECKSUM"
+            echo -e "\033[36mℹ️ Test checksum:        $TEST_CHECKSUM"
 
             if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
               MATCH=false
