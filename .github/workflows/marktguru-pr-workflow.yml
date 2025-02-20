@@ -8,8 +8,9 @@ on:
     types: [submitted]  # Trigger when a review is submitted
 
 permissions:
-  pull-requests: write-all  # Allow workflow to approve PRs and add labels
-  contents: write-all
+  pull-requests: write  # Allow workflow to approve PRs and add labels
+  contents: write
+  projects: read
 
 
 jobs:
