@@ -1,8 +1,8 @@
-name: 🚀 Marktguru PR workflow
+name: 🚀 PR workflow
 
 on:
   pull_request:
-    types: [opened, reopened, closed]  # Trigger on PR creation, reopening, and closing
+    types: [opened, reopened, closed, synchronize]  # Trigger on PR creation, reopening, and closing
   
   pull_request_review:
     types: [submitted]  # Trigger when a review is submitted
@@ -10,6 +10,7 @@ on:
 permissions:
   pull-requests: write  # Allow workflow to approve PRs and add labels
   contents: write
+  repository-projects: read
 
 
 jobs:
@@ -38,10 +39,10 @@ jobs:
             # If the label doesn't exist, create it
             RANDOM_COLOR=$(printf "#%02x%02x%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
 
-            echo "Label '$PR_LABEL' does not exist. Creating it now."
+            echo -e "\033[32mℹ️ Label '$PR_LABEL' does not exist. Creating it now."
             gh label create "$PR_LABEL" --color "$RANDOM_COLOR" --description "Feature branch label: $PR_LABEL"
           else
-            echo "Label '$PR_LABEL' already exists."
+            echo -e "\033[32m✅ Label '$PR_LABEL' already exists."
           fi
           
           gh pr edit ${{ github.event.pull_request.number }} --add-label "$PR_LABEL"
@@ -65,11 +66,11 @@ jobs:
           TEST_PR_NUMBER="${{ github.event.pull_request.number }}"
           CURRENT_USER="${{ github.actor }}"
 
-          echo "PR label: ${{ needs.add-label.outputs.pr_label }}"
-          echo "Test PR title: $TEST_PR_TITLE"
-          echo "Test PR author: $TEST_PR_AUTHOR"
-          echo "Test PR number: $TEST_PR_NUMBER"
-          echo "Current user: $CURRENT_USER"
+          echo -e "\033[32m📄 PR label: ${{ needs.add-label.outputs.pr_label }}"
+          echo -e "\033[32m📄 Test PR title: $TEST_PR_TITLE"
+          echo -e "\033[32m📄 Test PR author: $TEST_PR_AUTHOR"
+          echo -e "\033[32m📄 Test PR number: $TEST_PR_NUMBER"
+          echo -e "\033[32m📄 Current user: $CURRENT_USER"
 
           echo "test_pr_number=$TEST_PR_NUMBER" >> $GITHUB_ENV
         env:
@@ -79,7 +80,8 @@ jobs:
         id: check-pr
         run: |
           PR_LABEL="${{ needs.add-label.outputs.pr_label }}"
-          echo "Checking for closed PR with the label: '$PR_LABEL' on integration"
+          
+          echo -e "\033[32mℹ️ Checking for closed PR with the label: '$PR_LABEL' on integration"
 
           # Fetch closed PR matching the label
           INTEGRATION_PRS=$(gh pr list --repo ${{ github.repository }} --base integration --state closed --json labels,number,mergedAt --jq \
@@ -87,10 +89,10 @@ jobs:
 
           PR_COUNT=$(echo "$INTEGRATION_PRS" | jq 'length')
 
-          echo "Number of closed PRs with label '$PR_LABEL': $PR_COUNT"
+          echo -e "\033[32mℹ️ Number of closed PRs with label '$PR_LABEL': $PR_COUNT"
 
           if [[ "$PR_COUNT" -eq 0 ]]; then
-            echo "No closed PR found in integration with the label '$PR_LABEL'."
+            echo -e "\033[31m❌ No closed PR found in integration with the label '$PR_LABEL'."
             echo "approve=false" >> $GITHUB_ENV
             exit 0
           fi
@@ -100,17 +102,16 @@ jobs:
           for (( i=0; i<PR_COUNT; i++ )); do
             INT_PR_NUMBER=$(echo "$INTEGRATION_PRS" | jq -r ".[$i].number")
             MERGE_SHA=$(gh pr view $INT_PR_NUMBER --repo ${{ github.repository }} --json mergeCommit --jq '.mergeCommit.oid')
-
-            echo "PR #$INT_PR_NUMBER - Merge Commit: $MERGE_SHA"
-            
+           
             INT_PR_REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$INT_PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED")] | length')
 
             if [[ "$INT_PR_REVIEWS" -eq 0 ]]; then
-              echo "PR #$INT_PR_NUMBER was merged but was NOT approved!"
+              echo -e "\033[31m❌ PR #$INT_PR_NUMBER (Merge Commit: $MERGE_SHA) was merged but was NOT approved!"
               echo "approve=false" >> $GITHUB_ENV
               exit 0
             fi
-            echo "PR #$INT_PR_NUMBER was approved."
+            echo -e "\033[32mℹ️ PR #$INT_PR_NUMBER (Merge Commit: $MERGE_SHA) was approved!"
+
             MERGE_COMMITS+=("$MERGE_SHA")
           done
           echo "merge_commits=${MERGE_COMMITS[@]}" >> $GITHUB_ENV
@@ -124,17 +125,17 @@ jobs:
           # Get PR numbers
           TEST_PR_NUMBER=${{ env.test_pr_number }} # From previous step
 
-          echo "Fetching changed files for PR #$TEST_PR_NUMBER (test) ..."
+          echo -e "\033[32mℹ️ Fetching changed files for PR #$TEST_PR_NUMBER (test) ..."
           TEST_FILES=$(gh pr view $TEST_PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
 
-          echo "Files in test PR:"
+          echo -e "\033[32mℹ️ Files in test PR:"
           echo "$TEST_FILES"
     
           declare -A LATEST_FILE_COMMITS
           
           MATCH=true
           for MERGE_SHA in ${{ env.merge_commits }}; do
-            echo "Checking files from merge commit: $MERGE_SHA"
+            echo -e "\033[32mℹ️ Checking files from merge commit: $MERGE_SHA"
             
             CHANGED_FILES=$(gh api repos/${{ github.repository }}/commits/$MERGE_SHA --jq '.files[] | {filename, status}')
 
@@ -143,12 +144,15 @@ jobs:
             done
           done
           
-          echo "${LATEST_FILE_COMMITS[*]}"
-          
+          echo -e "\033[34m🔎 Latest file versions:\033[0m"
+          for FILE in "${!LATEST_FILE_COMMITS[@]}"; do
+              echo -e "\033[33m📂 File:\033[0m $FILE \033[36m| Last Commit:\033[0m ${LATEST_FILE_COMMITS[$FILE]}"
+          done
+
           if [[ "${#LATEST_FILE_COMMITS[@]}" -ne "$(echo "$TEST_FILES" | wc -l)" ]]; then
-            echo "Mismatch in file count!"
-            echo "Integration files (${#LATEST_FILE_COMMITS[@]}): ${!LATEST_FILE_COMMITS[@]}"
-            echo "Test files ($(echo "$TEST_FILES" | wc -l)):"
+            echo -e "\033[31m❌ Mismatch in file count!"
+            echo -e "\033[31m❌ Integration files (${#LATEST_FILE_COMMITS[@]}): ${!LATEST_FILE_COMMITS[@]}"
+            echo -e "\033[31m❌ Test files ($(echo "$TEST_FILES" | wc -l)):"
             echo "$TEST_FILES"
             echo "approve=false" >> $GITHUB_ENV
             exit 0
@@ -159,20 +163,20 @@ jobs:
             FILE_NAME=$(echo "$FILE" | jq -r '.filename') 
             FILE_STATUS=$(echo "$FILE" | jq -r '.status')
             
-            echo "Fetching latest version of $FILE_NAME from commit $LATEST_COMMIT..."
+            echo -e "\033[32mℹ️ Fetching latest version of $FILE_NAME from commit $LATEST_COMMIT..."
 
             if [[ "$FILE_STATUS" == "removed" ]]; then
-                echo "File $FILE_NAME was removed on Integration. Just check the same on Test"
-                TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head 2>/dev/null)
-                echo "TEST_CONTENT: $TEST_CONTENT";
-                TEST_CONTENT_STATUS = $(echo "$TEST_CONTENT" | jq -r '.status')
-                echo "TEST_CONTENT: $TEST_CONTENT";
+                echo -e "\033[36mℹ️ The file '$FILE_NAME' was removed in the Integration branch. Checking if it is also removed in the Test branch..."
+                echo -e "\033[36mℹ️ Retrieved content from Test branch for '$FILE_NAME'"
 
-                if [[ "$TEST_CONTENT_STATUS" -eq "404" ]]; then
-                    echo "File $FILE_NAME does not exist also in test PR. Skipping content check ..."
+                TEST_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILE_NAME?ref=pull/$TEST_PR_NUMBER/head 2>/dev/null || echo '{}')
+                TEST_CONTENT_STATUS=$(echo "$TEST_CONTENT" | jq -r '.status // empty')
+
+                if [[ "$TEST_CONTENT_STATUS" == "404" ]]; then
+                    echo -e "\033[32m✅ The file '$FILE_NAME' is also removed in the Test branch. Skipping content validation"
                     continue
                 fi
-                echo "File $FILE_NAME removed from Integration but exists on TEST PR! ..."
+                echo -e "\033[31m❌ Conflict detected! The file '$FILE_NAME' was removed in Integration, but still exists in the Test branch. Approval cannot proceed."
                 echo "approve=false" >> $GITHUB_ENV
                 exit 0
             fi
@@ -188,25 +192,24 @@ jobs:
             INTEGRATION_CHECKSUM=$(echo "$INTEGRATION_CONTENT" | sha256sum | awk '{print $1}')
             TEST_CHECKSUM=$(echo "$TEST_CONTENT" | sha256sum | awk '{print $1}')
 
-            echo "Comparing file: $FILE_NAME"
-            echo "Integration checksum: $INTEGRATION_CHECKSUM"
-            echo "Test checksum: $TEST_CHECKSUM"
+            echo -e "\033[36mℹ️ Integration checksum: $INTEGRATION_CHECKSUM"
+            echo -e "\033[36mℹ️ Test checksum:        $TEST_CHECKSUM"
 
             if [[ "$INTEGRATION_CHECKSUM" != "$TEST_CHECKSUM" ]]; then
               MATCH=false
-              echo "Checksum mismatch in file: $FILE_NAME"
+              echo -e "\033[31m❌ Checksum mismatch in file: $FILE_NAME"
               break
             fi
           done
           
           
           if [[ "$MATCH" == "false" ]]; then
-            echo "File contents do not match (checksum mismatch)!"
+            echo -e "\033[31m❌ File contents do not match (checksum mismatch)!"
             echo "approve=false" >> $GITHUB_ENV
             exit 0
           fi
           
-          echo "All files match in content and checksum!"
+          echo -e "\033[32m✅ All files match in content and checksum!"
           echo "approve=true" >> $GITHUB_ENV
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -214,7 +217,7 @@ jobs:
       - name: Auto-approve if PR matches
         if: env.approve == 'true'
         run: |
-          echo "Auto-approving PR as matching closed PR found in integration and it was approved."
+          echo  -e "\033[32m✅ Auto-approving PR as matching closed PR found in integration and it was approved."
           gh pr review ${{ github.event.pull_request.number }} --approve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,7 +229,6 @@ jobs:
       - name: Check Current Assignees
         id: check-assignees
         run: |
-          echo "${{ github.event.review.state }}"
           
           APPROVER="${{ github.event.review.user.login }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
@@ -234,17 +236,17 @@ jobs:
           echo "approver=$APPROVER" >> $GITHUB_ENV
           echo "pr_number=$PR_NUMBER" >> $GITHUB_ENV
 
-          echo "Checking if $APPROVER is already assigned to PR #$PR_NUMBER"
+          echo -e "\033[36mℹ️ Checking if $APPROVER is already assigned to PR #$PR_NUMBER"
 
           # Get the current assignees list
           CURRENT_ASSIGNEES=$(gh pr view "$PR_NUMBER" --repo ${{ github.repository }} --json assignees --jq '.assignees[].login')
 
           # Check if the approver is already assigned
           if echo "$CURRENT_ASSIGNEES" | grep -qw "$APPROVER"; then
-            echo "$APPROVER is already assigned. Skipping assignment."
+            echo -e "\033[36mℹ️ $APPROVER is already assigned. Skipping assignment."
             echo "assign=false" >> $GITHUB_ENV
           else
-            echo "$APPROVER is not assigned. Assigning now."
+            echo -e "\033[33m⚠️ $APPROVER is not assigned. Assigning now."
             echo "assign=true" >> $GITHUB_ENV
           fi
         env:
@@ -253,7 +255,7 @@ jobs:
       - name: Set Approver as an Assignee to PR
         if: env.assign == 'true'
         run: |
-          echo "Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
+          echo -e "\033[32m✅ Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
 
           gh pr edit "${{ env.pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
         env:
@@ -285,9 +287,6 @@ jobs:
       
       - name: Delete temporary branch if PR is approved and merged
         run: |
-          echo "Action: ${{ github.event.action }}"
-          echo "Merged: ${{ github.event.pull_request.merged }}"
-          echo "Ref: ${{ github.event.pull_request.head.ref }}"
           git fetch --prune
           git push origin --delete ${{ github.event.pull_request.head.ref }}
               
