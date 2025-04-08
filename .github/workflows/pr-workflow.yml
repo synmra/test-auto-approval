@@ -29,26 +29,51 @@ jobs:
         run: |
           # Extract the branch name (e.g., feature/mr/1234 -> 1234)
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
           FEATURE_NUMBER=$(echo "$BRANCH_NAME" | awk -F'/' '{print $NF}')
           PR_LABEL="feature-${FEATURE_NUMBER}"
-
-          # Check if the label exists
-          LABEL_EXISTS=$(gh label list --json name -q ".[] | select(.name == \"$PR_LABEL\")")
-
-          if [ -z "$LABEL_EXISTS" ]; then
-            # If the label doesn't exist, create it
-            HASH=$(echo -n "$FEATURE_NUMBER" | md5sum | awk '{print $1}')
-            LABEL_COLOR="#${HASH:0:6}"  # Use first 6 characters of hash for color
-
-            echo -e "\033[32mℹ️ Label '$PR_LABEL' does not exist. Creating it now."
-            gh label create "$PR_LABEL" --color "$LABEL_COLOR" --description "Feature branch label: $PR_LABEL"
-          else
-            echo -e "\033[32m✅ Label '$PR_LABEL' already exists."
+          HASH=$(echo -n "$FEATURE_NUMBER" | md5sum | awk '{print $1}')
+          FEATURE_LABEL_COLOR="#${HASH:0:6}"  # Use first 6 characters of hash for color
+          
+          ENV_LABEL = '';
+          # Determine environment label
+          if [ "$BASE_BRANCH" = "main" ] || [ "$BASE_BRANCH" = "master" ]; then
+            ENV_LABEL="Production"
+            ENV_LABEL_COLOR="ff0000"
+          elif [ "$BASE_BRANCH" = "develop" ]; then
+            ENV_LABEL="Integration"
+            ENV_LABEL_COLOR="0000ff"
+          elif [ "$BASE_BRANCH" = "test" ]; then
+            ENV_LABEL="Test"
+            ENV_LABEL_COLOR="ffff00"
           fi
           
-          gh pr edit ${{ github.event.pull_request.number }} --add-label "$PR_LABEL"
+          create_label_if_needed() {
+            local NAME=$1
+            local COLOR=$2
+
+            if [ -n "$NAME" ]; then
+              echo "🔍 Checking if label '$NAME' exists..."
+              LABEL_EXISTS=$(gh label list --json name -q ".[] | select(.name == \"$NAME\")")
+
+              if [ -z "$LABEL_EXISTS" ]; then
+                echo "➕ Creating label '$NAME' with color '$COLOR'"
+                gh label create "$NAME" --color "$COLOR" --force
+              else
+                echo "✅ Label '$NAME' already exists."
+              fi
+
+              # Attach label to PR
+              gh pr edit ${{ github.event.pull_request.number }} --add-label "$NAME"
+            fi
+          }
+          
+          create_label_if_needed "$PR_LABEL" "$FEATURE_LABEL_COLOR"
+          create_label_if_needed "$ENV_LABEL" "$ENV_LABEL_COLOR"
+
           echo "pr_label=$PR_LABEL" >> $GITHUB_OUTPUT
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }} 
+
 
  
