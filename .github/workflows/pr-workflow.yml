@@ -66,7 +66,7 @@ jobs:
               gh pr edit ${{ github.event.pull_request.number }} --add-label "$NAME"
             fi
           }
-          
+          echo "Creating label '$BASE_BRANCH' ENV '$ENV_LABEL' ENV_COLOR '$ENV_LABEL_COLOR'"
           create_label_if_needed "$PR_LABEL" "$FEATURE_LABEL_COLOR"
           create_label_if_needed "$ENV_LABEL" "$ENV_LABEL_COLOR"
 
