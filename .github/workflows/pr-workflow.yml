@@ -34,7 +34,8 @@ jobs:
           PR_LABEL="feature-${FEATURE_NUMBER}"
           HASH=$(echo -n "$FEATURE_NUMBER" | md5sum | awk '{print $1}')
           FEATURE_LABEL_COLOR="#${HASH:0:6}"  # Use first 6 characters of hash for color
-          RAW_TITLE="${{ github.event.pull_request.title }}"
+          RAW_TITLE=$(printf '%s' "${{ github.event.pull_request.title }}"
+          echo RAW_TITLE
           TEST_PR_TITLE=$(printf '%s' "$RAW_TITLE" | base64 | base64 --decode)
           
           echo -e "\033[32m📄 Test PR title: $TEST_PR_TITLE"
