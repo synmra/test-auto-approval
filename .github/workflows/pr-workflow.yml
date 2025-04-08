@@ -39,7 +39,7 @@ jobs:
           if [ "$BASE_BRANCH" = "main" ] || [ "$BASE_BRANCH" = "master" ]; then
             ENV_LABEL="Production"
             ENV_LABEL_COLOR="ff0000"
-          elif [ "$BASE_BRANCH" = "develop" ]; then
+          elif [ "$BASE_BRANCH" = "integration" ]; then
             ENV_LABEL="Integration"
             ENV_LABEL_COLOR="0000ff"
           elif [ "$BASE_BRANCH" = "test" ]; then
