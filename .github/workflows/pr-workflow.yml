@@ -1,17 +1,10 @@
 name: 🚀 PR workflow
 
 on:
-  pull_request:
-    types: [opened, reopened, closed, synchronize]  # Trigger on PR creation, reopening, and closing
-  
-  pull_request_review:
-    types: [submitted]  # Trigger when a review is submitted
-
-permissions:
-  pull-requests: write  # Allow workflow to approve PRs and add labels
-  contents: write
-  repository-projects: read
-
+  workflow_call:
+    secrets:
+      GITHUB_NUGET_TOKEN:
+        required: true
 
 jobs:
   add-label:
@@ -35,12 +28,11 @@ jobs:
           HASH=$(echo -n "$FEATURE_NUMBER" | md5sum | awk '{print $1}')
           FEATURE_LABEL_COLOR="#${HASH:0:6}"  # Use first 6 characters of hash for color
           
-          ENV_LABEL = '';
           # Determine environment label
           if [ "$BASE_BRANCH" = "main" ] || [ "$BASE_BRANCH" = "master" ]; then
             ENV_LABEL="Production"
             ENV_LABEL_COLOR="ff0000"
-          elif [ "$BASE_BRANCH" = "develop" ]; then
+          elif [ "$BASE_BRANCH" = "integration" ]; then
             ENV_LABEL="Integration"
             ENV_LABEL_COLOR="0000ff"
           elif [ "$BASE_BRANCH" = "test" ]; then
@@ -53,14 +45,14 @@ jobs:
             local COLOR=$2
 
             if [ -n "$NAME" ]; then
-              echo "🔍 Checking if label '$NAME' exists..."
+              echo -e "\033[34m🔎 Checking if label '$NAME' exists..."
               LABEL_EXISTS=$(gh label list --json name -q ".[] | select(.name == \"$NAME\")")
 
               if [ -z "$LABEL_EXISTS" ]; then
-                echo "➕ Creating label '$NAME' with color '$COLOR'"
+                echo -e "\033[32m➕ Creating label '$NAME' with color '$COLOR'"
                 gh label create "$NAME" --color "$COLOR" --force
               else
-                echo "✅ Label '$NAME' already exists."
+                echo -e "\033[32m✅ Label '$NAME' already exists."
               fi
 
               # Attach label to PR
@@ -75,5 +67,269 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }} 
 
+  auto-approve:
+    runs-on: ubuntu-latest
+    needs: add-label
+    if: (github.event.pull_request.base.ref == 'test' || github.event.pull_request.base.ref == 'master') && contains(fromJSON('["opened", "reopened", "synchronize"]'), github.event.action)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
- 
+      - name: Get PR Info
+        id: pr_info
+        run: |
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "target_branch=${{ github.event.pull_request.base.ref }}" >> $GITHUB_OUTPUT
+          echo "pr_label=${{ needs.add-label.outputs.pr_label }}" >> $GITHUB_OUTPUT
+
+          echo -e "\033[32m📄 PR #${{ github.event.pull_request.number }} targeting ${{ github.event.pull_request.base.ref }} with label ${{ needs.add-label.outputs.pr_label }}\033[0m"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Determine source branch for comparison
+        id: source_branch
+        run: |
+          TARGET_BRANCH="${{ steps.pr_info.outputs.target_branch }}"
+          SOURCE_BRANCH=""
+
+          if [[ "$TARGET_BRANCH" == "test" ]]; then
+            SOURCE_BRANCH="integration"
+          elif [[ "$TARGET_BRANCH" == "master" ]]; then
+            SOURCE_BRANCH="test"
+          else
+            echo -e "\033[31m❌ Unsupported target branch: $TARGET_BRANCH\033[0m"
+            exit 1
+          fi
+
+          echo "branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
+          echo -e "\033[32mℹ️ Looking for approved PRs in $SOURCE_BRANCH branch\033[0m"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Check for matching closed PR
+        id: check_pr
+        run: |
+          PR_LABEL="${{ steps.pr_info.outputs.pr_label }}"
+          SOURCE_BRANCH="${{ steps.source_branch.outputs.branch }}"
+
+          echo -e "\033[32mℹ️ Checking for closed PR with the label: '$PR_LABEL' on $SOURCE_BRANCH\033[0m"
+
+          # Fetch closed PRs matching the label
+          SOURCE_PRS=$(gh pr list --repo ${{ github.repository }} --base $SOURCE_BRANCH --state closed --json labels,number,mergedAt --jq \
+            '[.[] | select(.mergedAt != null and (.labels | map(.name) | index("'"$PR_LABEL"'")))] | sort_by(.mergedAt)')
+
+          PR_COUNT=$(echo "$SOURCE_PRS" | jq 'length')
+          echo -e "\033[32mℹ️ Number of closed PRs with label '$PR_LABEL' in $SOURCE_BRANCH: $PR_COUNT\033[0m"
+
+          if [[ "$PR_COUNT" -eq 0 ]]; then
+            echo -e "\033[31m❌ No closed PR found in $SOURCE_BRANCH with the label '$PR_LABEL'.\033[0m"
+            echo "approve=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract merge commits from approved PRs
+          MERGE_COMMITS=()
+          for (( i=0; i<PR_COUNT; i++ )); do
+            SOURCE_PR_NUMBER=$(echo "$SOURCE_PRS" | jq -r ".[$i].number")
+            MERGE_SHA=$(gh pr view $SOURCE_PR_NUMBER --repo ${{ github.repository }} --json mergeCommit --jq '.mergeCommit.oid')
+
+            SOURCE_PR_REVIEWS=$(gh api repos/${{ github.repository }}/pulls/$SOURCE_PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED")] | length')
+
+            if [[ "$SOURCE_PR_REVIEWS" -gt 0 ]]; then
+              echo -e "\033[32mℹ️ PR #$SOURCE_PR_NUMBER (Merge Commit: $MERGE_SHA) was approved!\033[0m"
+              MERGE_COMMITS+=("$MERGE_SHA")
+            fi
+          done
+
+          if [[ "${#MERGE_COMMITS[@]}" -eq 0 ]]; then
+            echo -e "\033[31m❌ No approved PRs found in $SOURCE_BRANCH with the label '$PR_LABEL'.\033[0m"
+            echo "approve=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Convert array to string for output
+          MERGE_COMMITS_STR=$(IFS=" " ; echo "${MERGE_COMMITS[*]}")
+          echo "merge_commits=$MERGE_COMMITS_STR" >> $GITHUB_OUTPUT
+          echo "has_commits=true" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Compare files and checksums
+        id: compare_files
+        if: steps.check_pr.outputs.has_commits == 'true'
+        run: |
+          PR_NUMBER="${{ steps.pr_info.outputs.pr_number }}"
+          MERGE_COMMITS="${{ steps.check_pr.outputs.merge_commits }}"
+
+          echo -e "\033[32mℹ️ Comparing files for PR #$PR_NUMBER against approved commits\033[0m"
+
+          TARGET_FILES=$(gh pr view $PR_NUMBER --repo ${{ github.repository }} --json files --jq '.files[].path' | sort)
+
+          echo -e "\033[32mℹ️ Files in current PR:\033[0m"
+          echo "$TARGET_FILES"
+
+          declare -A FILE_INFO
+          for MERGE_SHA in $MERGE_COMMITS; do
+            echo -e "\033[32mℹ️ Checking files from merge commit: $MERGE_SHA\033[0m"
+            CHANGED_FILES=$(gh api repos/${{ github.repository }}/commits/$MERGE_SHA --jq '.files[]')
+
+            while IFS= read -r FILE_DATA; do
+              if [[ -n "$FILE_DATA" ]]; then
+                FILENAME=$(echo "$FILE_DATA" | jq -r '.filename')
+                STATUS=$(echo "$FILE_DATA" | jq -r '.status')
+                PREVIOUS_FILENAME=$(echo "$FILE_DATA" | jq -r '.previous_filename // empty')
+
+                if [[ "$STATUS" == "renamed" && -n "$PREVIOUS_FILENAME" && "$PREVIOUS_FILENAME" != "$FILENAME" ]]; then
+                  if [[ -n "${FILE_INFO[$PREVIOUS_FILENAME]+x}" ]]; then
+                    unset 'FILE_INFO[$PREVIOUS_FILENAME]'
+                  fi
+                fi
+
+                FILE_INFO["$FILENAME"]=$(printf '{"sha":"%s","status":"%s"}' "$MERGE_SHA" "$STATUS")
+              fi
+            done <<< "$(echo "$CHANGED_FILES" | jq -c '.')"
+          done
+
+          echo -e "\033[34m🔎 Latest file versions:\033[0m"
+          for FILENAME in "${!FILE_INFO[@]}"; do
+              FILE_DATA="${FILE_INFO[$FILENAME]}"
+              MERGE_SHA=$(echo "$FILE_DATA" | jq -r '.sha')
+              echo -e "\033[33m📂 File:\033[0m $FILENAME \033[36m| Last Commit:\033[0m $MERGE_SHA"
+          done
+
+          # Compare file counts
+          if [[ "${#FILE_INFO[@]}" -ne "$(echo "$TARGET_FILES" | wc -l)" ]]; then
+            echo -e "\033[31m❌ Mismatch in file count!"
+            echo -e "\033[31m❌ Source branch files (${#FILE_INFO[@]}): ${!FILE_INFO[@]}"
+            echo -e "\033[31m❌ Target branch files ($(echo "$TARGET_FILES" | wc -l)):\033[0m"
+            echo "$TARGET_FILES"
+            echo "approve=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Compare file contents
+          MATCH=true
+          for FILENAME in "${!FILE_INFO[@]}"; do
+            FILE_DATA="${FILE_INFO[$FILENAME]}"
+            MERGE_SHA=$(echo "$FILE_DATA" | jq -r '.sha')
+            STATUS=$(echo "$FILE_DATA" | jq -r '.status')
+
+            echo -e "\033[32mℹ️ Checking $FILENAME from commit $MERGE_SHA...\033[0m"
+
+            if [[ "$STATUS" == "removed" ]]; then
+              echo -e "\033[36mℹ️ The file '$FILENAME' was removed in the source branch. Checking if it is also removed in the target branch...\033[0m"
+
+              TARGET_FILE_EXISTS=$(gh api repos/${{ github.repository }}/contents/$FILENAME?ref=pull/$PR_NUMBER/head 2>/dev/null && echo "true" || echo "false")
+              if [[ "$TARGET_FILE_EXISTS" == "true" ]]; then
+                echo -e "\033[31m❌ Conflict detected! The file '$FILENAME' was removed in source branch, but still exists in the target branch.\033[0m"
+                echo "approve=false" >> $GITHUB_OUTPUT
+                MATCH=false
+                break
+              fi
+              echo -e "\033[32m✅ The file '$FILENAME' is also removed in the target branch. Skipping content validation\033[0m"
+              continue
+            fi
+
+            # Compare content checksums
+            SOURCE_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILENAME?ref=$MERGE_SHA --jq '.content')
+            TARGET_CONTENT=$(gh api repos/${{ github.repository }}/contents/$FILENAME?ref=pull/$PR_NUMBER/head --jq '.content')
+
+            SOURCE_CHECKSUM=$(echo "$SOURCE_CONTENT" | sha256sum | cut -d' ' -f1)
+            TARGET_CHECKSUM=$(echo "$TARGET_CONTENT" | sha256sum | cut -d' ' -f1)
+
+            echo -e "\033[36mℹ️ Source checksum: $SOURCE_CHECKSUM"
+            echo -e "\033[36mℹ️ Target checksum: $TARGET_CHECKSUM\033[0m"
+
+            if [[ "$SOURCE_CHECKSUM" != "$TARGET_CHECKSUM" ]]; then
+              echo -e "\033[31m❌ Checksum mismatch in file: $FILENAME\033[0m"
+              echo "approve=false" >> $GITHUB_OUTPUT
+              MATCH=false
+              break
+            fi
+          done
+
+          if [[ "$MATCH" == "true" ]]; then
+            echo -e "\033[32m✅ All files match in content and checksum!\033[0m"
+            echo "approve=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Auto-approve PR
+        if: steps.compare_files.outputs.approve == 'true'
+        run: |
+          echo -e "\033[32m✅ Auto-approving PR as matching closed PR found in ${{ steps.source_branch.outputs.branch }} and it was approved.\033[0m"
+          gh pr review ${{ github.event.pull_request.number }} --approve
+        env:
+          GH_TOKEN: ${{ github.token }}
+  
+  assign-approver:
+    runs-on: ubuntu-latest
+    if: github.event.review.state == 'approved'  # Only trigger on approval
+    steps:
+      - name: Check Current Assignees
+        id: check-assignees
+        run: |
+          
+          APPROVER="${{ github.event.review.user.login }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          
+          echo "approver=$APPROVER" >> $GITHUB_ENV
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_ENV
+
+          echo -e "\033[36mℹ️ Checking if $APPROVER is already assigned to PR #$PR_NUMBER"
+
+          # Get the current assignees list
+          CURRENT_ASSIGNEES=$(gh pr view "$PR_NUMBER" --repo ${{ github.repository }} --json assignees --jq '.assignees[].login')
+
+          # Check if the approver is already assigned
+          if echo "$CURRENT_ASSIGNEES" | grep -qw "$APPROVER"; then
+            echo -e "\033[36mℹ️ $APPROVER is already assigned. Skipping assignment."
+            echo "assign=false" >> $GITHUB_ENV
+          else
+            echo -e "\033[33m⚠️ $APPROVER is not assigned. Assigning now."
+            echo "assign=true" >> $GITHUB_ENV
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }} 
+
+      - name: Set Approver as an Assignee to PR
+        if: env.assign == 'true'
+        run: |
+          echo -e "\033[32m✅ Assigning ${{ env.approver }} to PR ${{ env.pr_number }}"
+
+          gh pr edit "${{ env.pr_number }}" --repo ${{ github.repository }} --add-assignee "${{ env.approver }}"
+        env:
+          GH_TOKEN: ${{ github.token }} 
+
+  delete-feature-branch:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && contains(fromJSON('["main", "master"]'), github.event.pull_request.base.ref)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      
+      - name: Delete feature branch if PR is approved and merged to main
+        run: |
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
+          
+        env:
+          GH_TOKEN: ${{ github.token }} 
+
+  delete-temp-branch:
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'temp/')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      
+      - name: Delete temporary branch if PR is approved and merged
+        run: |
+          git fetch --prune
+          git push origin --delete ${{ github.event.pull_request.head.ref }}
+              
+        env:
+          GH_TOKEN: ${{ github.token }}
